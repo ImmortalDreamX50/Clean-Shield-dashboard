@@ -4,9 +4,21 @@ import folium
 from streamlit_folium import st_folium
 from datetime import datetime, timedelta
 import plotly.graph_objs as go
+from streamlit_autorefresh import st_autorefresh
+import pandas as pd
+import os
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Clean Shield Dashboard", layout="wide")
+
+# --- Auto-refresh ---
+refresh_interval = st.sidebar.selectbox(
+    "🔄 Auto-refresh interval",
+    options=[10000, 60000, 300000, 600000],
+    format_func=lambda x: f"{x//1000} seconds" if x < 60000 else f"{x//60000} minutes",
+    index=2
+)
+st_autorefresh(interval=refresh_interval, key="refresh")
 
 # --- Custom CSS Styling ---
 st.markdown("""
@@ -22,36 +34,29 @@ st.markdown("""
         border-radius: 12px;
         box-shadow: 0 0 10px #00000040;
     }
-    .card h3 {
-        margin: 0;
-        font-size: 24px;
-        font-weight: 600;
-    }
-    .metric-value {
-        font-size: 40px;
-        font-weight: bold;
-    }
-    .risk-high {
-        color: red;
-        font-size: 32px;
-        font-weight: bold;
-    }
-    .risk-moderate {
-        color: orange;
-        font-size: 28px;
-        font-weight: bold;
-    }
-    .risk-low {
-        color: lightgreen;
-        font-size: 28px;
-        font-weight: bold;
-    }
+    .metric-value { font-size: 40px; font-weight: bold; }
+    .risk-high { color: red; font-size: 32px; font-weight: bold; }
+    .risk-moderate { color: orange; font-size: 28px; font-weight: bold; }
+    .risk-low { color: lightgreen; font-size: 28px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- API & Config ---
 API_KEY = "3adadd6215176f2e11467321ee0784ad"
-LAT, LON = -29.9, 30.9
+
+# Sidebar: location input
+st.sidebar.header("🌍 Location Settings")
+city_name = st.sidebar.text_input("Enter city name", "Durban")
+
+# Geocode API to get lat/lon
+geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city_name},ZA&limit=1&appid={API_KEY}"
+geo_data = requests.get(geo_url).json()
+
+if geo_data:
+    LAT, LON = geo_data[0]['lat'], geo_data[0]['lon']
+else:
+    st.error("⚠️ Location not found in South Africa. Please enter a valid city.")
+    st.stop()
 
 @st.cache_data(ttl=600)
 def fetch_data(url):
@@ -69,13 +74,13 @@ weather_data = fetch_data(weather_url)
 pollution_data = fetch_data(pollution_url)
 
 if not weather_data or not pollution_data:
-    st.error("Failed to load data.")
+    st.error("❌ Failed to load weather/pollution data.")
     st.stop()
 
 # --- Extract Values ---
 temp = weather_data['main']['temp']
 humidity = weather_data['main']['humidity']
-wind = weather_data['wind']['speed'] * 3.6  # m/s to km/h
+wind = weather_data['wind']['speed'] * 3.6  # m/s → km/h
 pm25 = pollution_data['list'][0]['components']['pm2_5']
 dt = datetime.fromtimestamp(pollution_data['list'][0]['dt'])
 
@@ -86,41 +91,60 @@ if pm25 > 25:
 elif pm25 > 10:
     risk = "Moderate"
 
-# --- Simulated PM2.5 Data ---
-dates = [datetime.now() - timedelta(days=i) for i in reversed(range(10))]
-bc_values = [max(5, pm25 + (i - 5)) for i in range(10)]
+# --- Save data to CSV (auto-logging) ---
+log_file = "sensor_log.csv"
+new_entry = pd.DataFrame([{
+    "timestamp": dt,
+    "city": city_name,
+    "lat": LAT,
+    "lon": LON,
+    "temp_C": temp,
+    "humidity_%": humidity,
+    "wind_kmh": wind,
+    "pm25_µg/m³": pm25,
+    "risk": risk
+}])
 
-# 📍 Create a base map centered on your location
-m = folium.Map(location=[-29.9, 30.9], zoom_start=7, tiles="CartoDB dark_matter")
+if os.path.exists(log_file):
+    df_log = pd.read_csv(log_file)
+    df_log = pd.concat([df_log, new_entry], ignore_index=True)
+else:
+    df_log = new_entry
 
-# 🔴 Add High Risk Zone
+df_log.to_csv(log_file, index=False)
+
+# --- Historical PM2.5 Data ---
+def fetch_historical_pm25(lat, lon, start_date, end_date, api_key):
+    historical_data = []
+    current_date = start_date
+    while current_date <= end_date:
+        timestamp = int(current_date.timestamp())
+        url = f"http://api.openweathermap.org/data/2.5/air_pollution/history?lat={lat}&lon={lon}&start={timestamp}&end={timestamp+3600}&appid={api_key}"
+        data = fetch_data(url)
+        if data:
+            pm25_value = data['list'][0]['components']['pm2_5'] if 'list' in data else None
+            if pm25_value is not None:
+                historical_data.append((current_date, pm25_value))
+        current_date += timedelta(days=1)
+    return historical_data
+
+# Fetch historical PM2.5 data for the past 7 days
+end_date = datetime.now()
+start_date = end_date - timedelta(days=7)
+historical_pm25 = fetch_historical_pm25(LAT, LON, start_date, end_date, API_KEY)
+
+# Prepare data for plotting
+dates = [entry[0] for entry in historical_pm25]
+pm25_values = [entry[1] for entry in historical_pm25]
+
+# 📍 Map
+m = folium.Map(location=[LAT, LON], zoom_start=7, tiles="CartoDB dark_matter")
 folium.CircleMarker(
-    location=[-29.9, 30.9],
+    location=[LAT, LON],
     radius=10,
-    color="red",
-    fill=True,
-    fill_opacity=0.7,
-    popup="High Risk Zone (Black Carbon > 25 µg/m³)"
-).add_to(m)
-
-# 🟠 Add Moderate Risk Zone
-folium.CircleMarker(
-    location=[-30.2, 30.7],
-    radius=10,
-    color="orange",
-    fill=True,
-    fill_opacity=0.6,
-    popup="Moderate Risk Zone (Black Carbon 10–25 µg/m³)"
-).add_to(m)
-
-# 🟢 Add Low Risk Zone
-folium.CircleMarker(
-    location=[-30.5, 30.5],
-    radius=10,
-    color="green",
-    fill=True,
-    fill_opacity=0.5,
-    popup="Low Risk Zone (Black Carbon < 10 µg/m³)"
+    color="red" if risk == "High" else "orange" if risk == "Moderate" else "green",
+    fill=True, fill_opacity=0.7,
+    popup=f"{risk} Risk Zone"
 ).add_to(m)
 
 # --- Dashboard Layout ---
@@ -138,13 +162,13 @@ with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("### GLACIER MELT RISK")
     if risk == "High":
-        st.markdown(f"<div class='risk-high'>High</div>", unsafe_allow_html=True)
+        st.markdown("<div class='risk-high'>High</div>", unsafe_allow_html=True)
         st.markdown("⚠️ WARNING")
     elif risk == "Moderate":
-        st.markdown(f"<div class='risk-moderate'>Moderate</div>", unsafe_allow_html=True)
+        st.markdown("<div class='risk-moderate'>Moderate</div>", unsafe_allow_html=True)
         st.markdown("⚠️ Be cautious")
     else:
-        st.markdown(f"<div class='risk-low'>Low</div>", unsafe_allow_html=True)
+        st.markdown("<div class='risk-low'>Low</div>", unsafe_allow_html=True)
         st.markdown("✅ Stable")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -158,7 +182,7 @@ with col3:
 # --- Trend Graph ---
 st.markdown("### 📊 Black Carbon Concentration (µg/m³)")
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=dates, y=bc_values, mode='lines+markers', line=dict(color="orange", width=3)))
+fig.add_trace(go.Scatter(x=dates, y=pm25_values, mode='lines+markers', line=dict(color="orange", width=3)))
 fig.update_layout(
     plot_bgcolor='#1e293b',
     paper_bgcolor='#121926',
@@ -171,16 +195,18 @@ st.plotly_chart(fig, use_container_width=True)
 
 # --- Risk Zone Map and Alerts ---
 col4, col5 = st.columns(2)
-# 🗺️ Display it in Streamlit
 with col4:
     st.subheader("📍 RISK ZONE MAP")
     st_folium(m, width=700, height=400)
 
-
 with col5:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🚨 ALERTS")
-    st.markdown(f"🔴 **High glacier melt risk** — {dt.strftime('%I:%M %p')}")
+    st.markdown(f"🔴 **{risk} glacier melt risk** — {dt.strftime('%I:%M %p')}")
     if pm25 > 10:
         st.markdown(f"🟠 Moderate black carbon levels — {dt.strftime('%b %d, %I:%M %p')}")
     st.markdown('</div>', unsafe_allow_html=True)
+
+# --- Show log preview ---
+st.markdown("### 📑 Logged Data (last 5 entries)")
+st.dataframe(df_log.tail(5))
