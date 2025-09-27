@@ -1,5 +1,7 @@
-streamlit
-requests
-folium
-streamlit-folium
-plotly
+streamlit>=1.25.0
+requests>=2.31.0
+pandas>=2.1.0
+plotly>=5.20.0
+folium>=0.14.0
+streamlit-folium>=0.11.0
+streamlit-autorefresh>=0.2.0
