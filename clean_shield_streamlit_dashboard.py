@@ -65,7 +65,7 @@ if "data" not in st.session_state:
 
 def add_sensor_data():
     try:
-        params = st.experimental_get_query_params()
+        params = st.query_params
         if "payload" in params:
             payload = json.loads(params["payload"][0])
             st.session_state["data"].append(payload)
