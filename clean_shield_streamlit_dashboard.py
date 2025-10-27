@@ -275,9 +275,10 @@ else:
     # Timestamp
     if latest.get("timestamp"):
         st.markdown(f"📌 Last Update: **{latest.get('timestamp')}**")
+    
     #KYO15
     if latest.get("temp_kyo15") is not None:
-    st.markdown("### 🌡️ KYO15 Temperature & Humidity")
-    st.write(f"Temperature: {latest.get('temp_kyo15')} °C")
-    st.write(f"Humidity: {latest.get('humidity_kyo15')} %")
+        st.markdown("### 🌡️ KYO15 Temperature & Humidity")
+        st.write(f"Temperature: {latest.get('temp_kyo15')} °C")
+        st.write(f"Humidity: {latest.get('humidity_kyo15')} %")
 
