@@ -7,6 +7,7 @@ import plotly.graph_objs as go
 from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 import os
+import json
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Clean Shield Dashboard", layout="wide")
@@ -58,6 +59,21 @@ else:
     st.error("⚠️ Location not found in South Africa. Please enter a valid city.")
     st.stop()
 
+# ✅ IoT Data Upload Endpoint
+if "data" not in st.session_state:
+    st.session_state["data"] = []
+
+def add_sensor_data():
+    try:
+        params = st.experimental_get_query_params()
+        if "payload" in params:
+            payload = json.loads(params["payload"][0])
+            st.session_state["data"].append(payload)
+    except Exception as e:
+        st.write("Upload error:", e)
+
+add_sensor_data()
+
 @st.cache_data(ttl=600)
 def fetch_data(url):
     try:
@@ -80,7 +96,7 @@ if not weather_data or not pollution_data:
 # --- Extract Values ---
 temp = weather_data['main']['temp']
 humidity = weather_data['main']['humidity']
-wind = weather_data['wind']['speed'] * 3.6  # m/s → km/h
+wind = weather_data['wind']['speed'] * 3.6
 pm25 = pollution_data['list'][0]['components']['pm2_5']
 dt = datetime.fromtimestamp(pollution_data['list'][0]['dt'])
 
@@ -128,7 +144,7 @@ def fetch_historical_pm25(lat, lon, start_date, end_date, api_key):
         current_date += timedelta(days=1)
     return historical_data
 
-# Fetch historical PM2.5 data for the past 7 days
+# Fetch historical PM2.5 data for past week
 end_date = datetime.now()
 start_date = end_date - timedelta(days=7)
 historical_pm25 = fetch_historical_pm25(LAT, LON, start_date, end_date, API_KEY)
@@ -181,6 +197,7 @@ with col3:
 
 # --- Trend Graph ---
 st.markdown("### 📊 Black Carbon Concentration (µg/m³)")
+
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=dates, y=pm25_values, mode='lines+markers', line=dict(color="orange", width=3)))
 fig.update_layout(
@@ -207,6 +224,54 @@ with col5:
         st.markdown(f"🟠 Moderate black carbon levels — {dt.strftime('%b %d, %I:%M %p')}")
     st.markdown('</div>', unsafe_allow_html=True)
 
+
 # --- Show log preview ---
 st.markdown("### 📑 Logged Data (last 5 entries)")
 st.dataframe(df_log.tail(5))
+
+
+# =============================
+# ✅ SENSOR DATA SECTION (NEW)
+# =============================
+st.markdown("---")
+st.markdown("## 🧪 IoT SENSOR DATA")
+
+if "data" not in st.session_state or len(st.session_state["data"]) == 0:
+    st.info("Waiting for IoT sensor data... (Connect Raspberry Pi)")
+else:
+    latest = st.session_state["data"][-1]
+
+    colA, colB, colC = st.columns(3)
+
+    with colA:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("### MQ-7 (CO)")
+        st.markdown(f"<div class='metric-value'>{latest.get('mq7', 'N/A')}</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with colB:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("### MQ-6 (LPG)")
+        st.markdown(f"<div class='metric-value'>{latest.get('mq6', 'N/A')}</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with colC:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("### MQ-136 (H₂S)")
+        st.markdown(f"<div class='metric-value'>{latest.get('mq136', 'N/A')}</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Temperature & Humidity
+    if latest.get("temp") is not None or latest.get("humidity") is not None:
+        st.markdown("### 🌡️ Environmental Data (Sense HAT)")
+        st.write(f"**Temperature:** {latest.get('temp', 'N/A')} °C")
+        st.write(f"**Humidity:** {latest.get('humidity', 'N/A')} %")
+
+    # Soil Moisture
+    if latest.get("soil") is not None:
+        st.markdown("### 🌱 Soil Moisture")
+        st.write(f"Moisture Level: {latest.get('soil')}")
+
+    # Timestamp
+    if latest.get("timestamp"):
+        st.markdown(f"📌 Last Update: **{latest.get('timestamp')}**")
