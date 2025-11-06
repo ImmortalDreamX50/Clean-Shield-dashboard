@@ -231,7 +231,7 @@ st.dataframe(df_log.tail(5))
 
 
 # =============================
-# ✅ SENSOR DATA SECTION (NEW)
+# ✅ SENSOR DATA SECTION (UPDATED)
 # =============================
 st.markdown("---")
 st.markdown("## 🧪 IoT SENSOR DATA")
@@ -241,8 +241,8 @@ if "data" not in st.session_state or len(st.session_state["data"]) == 0:
 else:
     latest = st.session_state["data"][-1]
 
+    # --- Air Quality Sensors (MQs) ---
     colA, colB, colC = st.columns(3)
-
     with colA:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### MQ-7 (CO)")
@@ -261,24 +261,50 @@ else:
         st.markdown(f"<div class='metric-value'>{latest.get('mq136', 'N/A')}</div>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Temperature & Humidity
-    if latest.get("temp") is not None or latest.get("humidity") is not None:
-        st.markdown("### 🌡️ Environmental Data (Sense HAT)")
-        st.write(f"**Temperature:** {latest.get('temp', 'N/A')} °C")
-        st.write(f"**Humidity:** {latest.get('humidity', 'N/A')} %")
-
-    # Soil Moisture
-    if latest.get("soil") is not None:
+    # --- Soil Moisture, pH, and Light ---
+    colD, colE, colF = st.columns(3)
+    with colD:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### 🌱 Soil Moisture")
-        st.write(f"Moisture Level: {latest.get('soil')}")
+        soil_val = latest.get('soil', 'N/A')
+        st.markdown(f"<div class='metric-value'>{soil_val}</div>", unsafe_allow_html=True)
+        st.progress(int(min(soil_val / 10, 100)) if isinstance(soil_val, (int, float)) else 0)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # Timestamp
+    with colE:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("### 🧪 pH Level")
+        ph_val = latest.get('ph_value', 'N/A')
+        st.markdown(f"<div class='metric-value'>{ph_val}</div>", unsafe_allow_html=True)
+        if isinstance(ph_val, (int, float)):
+            if ph_val < 5.5:
+                st.warning("Soil too acidic ⚠️")
+            elif ph_val > 7.5:
+                st.warning("Soil too alkaline ⚠️")
+            else:
+                st.success("Ideal pH range ✅")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with colF:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("### 🌞 Light Level")
+        light_pct = latest.get('light_pct', 'N/A')
+        st.markdown(f"<div class='metric-value'>{light_pct}%</div>", unsafe_allow_html=True)
+        st.progress(int(light_pct) if isinstance(light_pct, (int, float)) else 0)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- Environmental Sensors ---
+    st.markdown("### 🌡️ Environmental Data (Sense HAT)")
+    st.write(f"**Temperature:** {latest.get('temp_sense', 'N/A')} °C")
+    st.write(f"**Humidity:** {latest.get('humidity_sense', 'N/A')} %")
+
+    # --- KYO15 (External DHT22) ---
+    st.markdown("### 🌡️ KYO15 Temperature & Humidity")
+    st.write(f"**Temperature:** {latest.get('temp_kyo15', 'N/A')} °C")
+    st.write(f"**Humidity:** {latest.get('humidity_kyo15', 'N/A')} %")
+
+    # --- Timestamp ---
     if latest.get("timestamp"):
         st.markdown(f"📌 Last Update: **{latest.get('timestamp')}**")
-    
-    #KYO15
-    if latest.get("temp_kyo15") is not None:
-        st.markdown("### 🌡️ KYO15 Temperature & Humidity")
-        st.write(f"Temperature: {latest.get('temp_kyo15')} °C")
-        st.write(f"Humidity: {latest.get('humidity_kyo15')} %")
+
 
